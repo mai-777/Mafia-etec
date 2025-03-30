@@ -51,17 +51,33 @@ async def noche_cmd(interaction: discord.Interaction):
 
     await crear_roles(guild,mafiosos,jugadores)
 
+    partida["estado_noche"] = "en_proceso"
+
     await interaction.response.send_message("🌙 **Fase de Noche**: Mafiosos, elijan a su víctima en su chat privado.")
     await canal_mafia.send("Bienvenidos mafiosos. Usen `!matar <jugador>` para elegir su víctima.")
+
+    votos_mafia.clear()
+    while len(votos_mafia) < len(mafiosos):
+        await asyncio.sleep(1)
+
+    partida["estado_noche"] = "completado" 
+
+    await eliminar_canal_mafia(canal_mafia)
+
+    if len(partida["mafiosos"] ) == 0:
+        await canal.send("🎉 Los **ciudadanos han ganado**. No quedan mafiosos en el juego.")
+        await eliminar_canal_mafia(canal_mafia)
+    
+
 
 async def crear_roles(guild, mafiosos,jugadores):
     mafia_rol = discord.utils.get(guild.roles, name="Mafioso")
     if not mafia_rol:
-        mafia_rol = await guild.create.role(name="Mafioso", color=discord.Color.red(), reason="Rol para los mafiosos")
+        mafia_rol = await guild.create_role(name="Mafioso", color=discord.Color.red(), reason="Rol para los mafiosos")
     
     ciudadano_rol = discord.utils.get(guild.roles, name="Ciudadano")
     if not ciudadano_rol:
-        ciudadano_rol = await guild.create.role(name="Ciudadano", color=discord.Color.blue(), reason="Rol para los ciudadanos")
+        ciudadano_rol = await guild.create_role(name="Ciudadano", color=discord.Color.blue(), reason="Rol para los ciudadanos")
     for jugador_id in jugadores:
          member = guild.get_member(jugador_id)
          if member:
@@ -92,4 +108,10 @@ async def matar_cmd(interaction: discord.Interaction, victima: discord.Member):
     votos_mafia[interaction.user.id] = victima.id
     await interaction.response.send_message(f"Voto registrado. Mafioso {interaction.user.name} votó por {victima.name}.")
 
+async def eliminar_canal_mafia(canal_mafia):
+    try:
+        await canal_mafia.delete()
+        print("El Canal de mafia fue eliminado")
+    except Exception as e:
+        print(f"Error en eliminar el canal de mafiosos: {e}")
 client.run(TOKEN)
