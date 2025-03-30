@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from discord import app_commands
 from discord.ext import commands
 import random
+import asyncio
 
 # Cargar variables de entorno
 load_dotenv()
@@ -17,6 +18,7 @@ client = commands.Bot(command_prefix="!", intents=intents)
 GUILD_ID = discord.Object(id=1354935237976789164)
 
 partidas = {}  # Diccionario para guardar partidas
+puntuaciones = {}  # Diccionario para guardar puntuaciones
 
 @client.event
 async def on_ready():
@@ -31,7 +33,7 @@ async def on_ready():
         print(f"Error syncing commands: {e}")
 
 @client.tree.command(name="crear", description="Crea una partida de Mafia", guild=GUILD_ID)
-async def crear_partida(interaction: discord.Interaction, numero_jugadores: int):
+async def crear_partida(interaction: discord.Interaction, numero_jugadores: int, partida_rapida: int = 0):
     if numero_jugadores < 1 or numero_jugadores > 20:
         await interaction.response.send_message("Jugadores: 4-20.")
         return
@@ -40,10 +42,14 @@ async def crear_partida(interaction: discord.Interaction, numero_jugadores: int)
         "jugadores": [interaction.user.id],
         "max_jugadores": numero_jugadores,
         "activa": True,
-        "roles_asignados": False  # Añadimos un indicador para saber si los roles ya han sido asignados
+        "roles_asignados": False,
+        "partida_rapida": partida_rapida
     }
 
-    await interaction.response.send_message(f"Partida creada para {numero_jugadores}. Usa /unirme.")
+    if partida_rapida > 0:
+        await interaction.response.send_message(f"Partida rápida creada para {numero_jugadores} con duración de {partida_rapida} segundos. Usa /unirme.")
+    else:
+        await interaction.response.send_message(f"Partida normal creada para {numero_jugadores}. Usa /unirme.")
 
 @client.tree.command(name="unirme", description="Únete a una partida de Mafia", guild=GUILD_ID)
 async def unirme_partida(interaction: discord.Interaction):
@@ -69,7 +75,7 @@ async def unirme_partida(interaction: discord.Interaction):
         await asignar_roles(interaction, partida)
 
 async def asignar_roles(interaction, partida):
-    roles = ["Mafioso", "Ciudadano", "Doctor", "Detective"]
+    roles = ["Mafioso", "Ciudadano", "Doctor", "Detective", "Juez", "Espía"] # Nuevos roles
     jugadores = partida["jugadores"]
     random.shuffle(roles)
 
@@ -80,5 +86,28 @@ async def asignar_roles(interaction, partida):
 
     partida["roles_asignados"] = True
     await interaction.channel.send("Roles asignados por mensaje privado.")
+
+    # Iniciar la primera fase del juego (ejemplo: noche)
+    if partida["partida_rapida"] > 0:
+        await fase_juego(interaction, partida["partida_rapida"])
+    else:
+        await fase_juego(interaction, 60)  # Duración predeterminada para partidas normales
+
+@client.tree.command(name="ranking", description="Muestra la clasificación de jugadores", guild=GUILD_ID)
+async def ranking(interaction: discord.Interaction):
+    jugadores_ordenados = sorted(puntuaciones.items(), key=lambda x: x[1], reverse=True)
+
+    embed = discord.Embed(title="Clasificación de Mafia", color=discord.Color.blue())
+    for jugador_id, puntuacion in jugadores_ordenados:
+        jugador = await client.fetch_user(jugador_id)
+        embed.add_field(name=jugador.name, value=str(puntuacion), inline=False)
+
+    await interaction.response.send_message(embed=embed)
+
+# Ejemplo de función para simular una fase del juego con temporizador
+async def fase_juego(interaction, duracion):
+    await interaction.channel.send(f"La fase comienza. Tienen {duracion} segundos.")
+    await asyncio.sleep(duracion)
+    await interaction.channel.send("La fase ha terminado.")
 
 client.run(TOKEN)
