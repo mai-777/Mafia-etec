@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 from discord import app_commands
 from discord.ext import commands
+import random
 
 # Cargar variables de entorno
 load_dotenv()
@@ -31,14 +32,15 @@ async def on_ready():
 
 @client.tree.command(name="crear", description="Crea una partida de Mafia", guild=GUILD_ID)
 async def crear_partida(interaction: discord.Interaction, numero_jugadores: int):
-    if numero_jugadores < 4 or numero_jugadores > 20:
+    if numero_jugadores < 1 or numero_jugadores > 20:
         await interaction.response.send_message("Jugadores: 4-20.")
         return
 
     partidas[interaction.channel.id] = {
         "jugadores": [interaction.user.id],
         "max_jugadores": numero_jugadores,
-        "activa": True
+        "activa": True,
+        "roles_asignados": False  # Añadimos un indicador para saber si los roles ya han sido asignados
     }
 
     await interaction.response.send_message(f"Partida creada para {numero_jugadores}. Usa /unirme.")
@@ -61,5 +63,22 @@ async def unirme_partida(interaction: discord.Interaction):
 
     partida["jugadores"].append(interaction.user.id)
     await interaction.response.send_message(f"{interaction.user.name} se unió. {len(partida['jugadores'])}/{partida['max_jugadores']}")
+
+    # Si la partida está llena, asignamos roles
+    if len(partida["jugadores"]) == partida["max_jugadores"] and not partida["roles_asignados"]:
+        await asignar_roles(interaction, partida)
+
+async def asignar_roles(interaction, partida):
+    roles = ["Mafioso", "Ciudadano", "Doctor", "Detective"]
+    jugadores = partida["jugadores"]
+    random.shuffle(roles)
+
+    for i, jugador_id in enumerate(jugadores):
+        jugador = await client.fetch_user(jugador_id)
+        rol = roles[i % len(roles)]  # Asignamos roles cíclicamente si hay más jugadores que roles
+        await jugador.send(f"Tu rol es: {rol}")
+
+    partida["roles_asignados"] = True
+    await interaction.channel.send("Roles asignados por mensaje privado.")
 
 client.run(TOKEN)
