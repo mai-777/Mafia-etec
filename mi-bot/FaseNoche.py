@@ -33,6 +33,16 @@ async def on_ready():
     except Exception as e:
         print(f"Error sincronizando comandos: {e}")
 
+TIMEOUT = 30
+
+async def esperar_votos_mafiosos(votos_mafia, mafiosos):
+    start_time = asyncio.get_event_loop().time()
+    while len(votos_mafia) < len(mafiosos):
+        if asyncio.get_event_loop().time() - start_time > TIMEOUT:
+            break
+        await asyncio.sleep(1)
+
+
 @client.tree.command(name="noche", description="Inicia la fase de noche", guild=GUILD_ID)
 async def noche_cmd(interaction: discord.Interaction):
     canal = interaction.channel
@@ -44,9 +54,12 @@ async def noche_cmd(interaction: discord.Interaction):
         return
 
     jugadores = partida["jugadores"]
-    mafiosos = random.sample(jugadores, max(1, len(jugadores) // 3))
+    mafiosos = partida.get("mafiosos", [])
 
-    partida["mafiosos"] = mafiosos
+    if not mafiosos:
+        await interaction.response.send_message("No hay mafiosos en la partida. La fase de noche no puede comenzar.")
+        return
+
     canal_mafia = await crear_canal_mafia(guild, mafiosos)
 
     await crear_roles(guild,mafiosos,jugadores)
@@ -57,10 +70,16 @@ async def noche_cmd(interaction: discord.Interaction):
     await canal_mafia.send("Bienvenidos mafiosos. Usen `!matar <jugador>` para elegir su víctima.")
 
     votos_mafia.clear()
-    while len(votos_mafia) < len(mafiosos):
-        await asyncio.sleep(1)
 
-    partida["estado_noche"] = "completado" 
+    await esperar_votos_mafiosos(votos_mafia,mafiosos)
+    partida["estado_noche"] = "completado"
+
+    if len(votos_mafia) == 0:
+        await canal.send("La fase de noche terminó sin votos. La partida continúa.")
+    else:
+        victima = max(votos_mafia,key=votos_mafia.get)
+        jugador_votado = guild.get_member(victima)
+        await canal.send(f"🌙 Los mafiosos han decidido eliminar a {jugador_votado.name}. ¡Se procesará al amanecer!")
 
     await eliminar_canal_mafia(canal_mafia)
 

@@ -1,3 +1,4 @@
+import time
 import discord
 import os
 from dotenv import load_dotenv
@@ -37,7 +38,7 @@ async def on_ready():
 @client.tree.command(name="dia", description="Inicia la fase de día y permite votar", guild=GUILD_ID)
 async def dia_cmd(interaction: discord.Interaction):
     canal = interaction.channel
-    guild = interaction.guild
+    #guild = interaction.guild
     partida = partidas.get(canal.id)
 
     if not partida:
@@ -57,17 +58,23 @@ async def dia_cmd(interaction: discord.Interaction):
     await canal.send("🗳️ **¡Votación!** Solo los ciudadanos pueden votar. Voten a quién creen que es un mafioso usando `!votar <jugador>`.")
     votos_dia.clear()
 
-    while len(votos_dia) < len(ciudadanos):
+    timeout = 45
+    start_time = time.time()
+
+    while len(votos_dia) < len(ciudadanos) and time.time()- start_time < timeout:
         await asyncio.sleep(1)
 
-    votos_contados = {v: list(votos_dia.values()).count(v) for v in set(votos_dia.values())}
-    jugador_votado = max(votos_contados, key=votos_contados.get)
-
-    if jugador_votado in mafiosos:
-        resultado = "Era un **Mafioso**!!!"
-    else:
-        resultado = "Era un **Ciudadano** :c"
-    await canal.send(f"{jugador_votado} ha sido eliminado. {resultado}")
+    votos_contados = {}
+    for voto in votos_dia.values():
+        votos_contados[voto] = votos_contados.get(voto,0)+1
+    
+    if votos_contados:
+        jugador_votado = max(votos_contados, key=votos_contados.get)
+        if jugador_votado in mafiosos:
+            resultado = "Era un **Mafioso**!!!"
+        else:
+            resultado = "Era un **Ciudadano** :c"
+        await canal.send(f"{jugador_votado} ha sido eliminado. {resultado}")
 
     partida["jugadores"].remove(jugador_votado)
     if jugador_votado in mafiosos:
