@@ -1,136 +1,52 @@
 import discord
-import os
-from dotenv import load_dotenv
-from discord import app_commands
-from discord.ext import commands
-import asyncio
-import random
-from creacion_partidas import partidas
+from collections import defaultdict
 
-
-# Cargar variables de entorno
-load_dotenv()
-TOKEN = os.getenv('DISCORD_TOKEN')
-
-# Crear cliente
-intents = discord.Intents.default()
-intents.message_content = True
-client = commands.Bot(command_prefix="!", intents=intents)
-
-GUILD_ID = discord.Object(id=1354935237976789164)
-
-
-votos_mafia = {}
-
-@client.event
-async def on_ready():
-    print(f'✅ Bot conectado como {client.user}')
-    
-    try:
-        guild = discord.Object(id=1354935237976789164) 
-        synced = await client.tree.sync(guild=guild)
-        print(f"Comandos sincronizados en el servidor {guild.id}: {len(synced)} comandos")
-    except Exception as e:
-        print(f"Error sincronizando comandos: {e}")
-
-TIMEOUT = 30
-
-async def esperar_votos_mafiosos(votos_mafia, mafiosos):
-    start_time = asyncio.get_event_loop().time()
-    while len(votos_mafia) < len(mafiosos):
-        if asyncio.get_event_loop().time() - start_time > TIMEOUT:
-            break
-        await asyncio.sleep(1)
-
-
-@client.tree.command(name="noche", description="Inicia la fase de noche", guild=GUILD_ID)
-async def noche_cmd(interaction: discord.Interaction):
-    canal = interaction.channel
-    guild = interaction.guild
-    partida = partidas.get(canal.id)
-
+async def comando_matar(ctx, partidas, votos_mafia, client, fase_dia, votos_dia):
+    partida = partidas.get(ctx.guild.id)
     if not partida:
-        await interaction.response.send_message("No hay partida en este canal.")
+        await ctx.send("No hay partida activa.")
         return
 
-    jugadores = partida["jugadores"]
-    mafiosos = partida.get("mafiosos", [])
-
-    if not mafiosos:
-        await interaction.response.send_message("No hay mafiosos en la partida. La fase de noche no puede comenzar.")
+    canal_mafiosos = ctx.guild.get_channel(partida["canal_mafiosos"])
+    if not canal_mafiosos or ctx.channel.id != canal_mafiosos.id:
+        await ctx.send("Este comando solo puede usarse en el canal de los mafiosos.")
         return
 
-    canal_mafia = await crear_canal_mafia(guild, mafiosos)
+    if partida["roles"].get(ctx.author) != "Mafioso":
+        await ctx.send("Solo los mafiosos pueden usar este comando.")
+        return
 
-    await crear_roles(guild,mafiosos,jugadores)
+    victima = ctx.message.mentions[0]
+    votos_mafia[victima] += 1
+    await ctx.send(f"🗳️ Voto registrado para matar a {victima.mention}")
 
-    partida["estado_noche"] = "en_proceso"
+    total_mafiosos = sum(1 for r in partida["roles"].values() if r == "Mafioso")
+    if votos_mafia[victima] >= total_mafiosos:
+        await canal_mafiosos.send(f"🩸 {victima.mention} ha sido asesinado.")
+        partida["jugadores"].remove(victima)
+        del partida["roles"][victima]
+        votos_mafia.clear()
 
-    await interaction.response.send_message("🌙 **Fase de Noche**: Mafiosos, elijan a su víctima en su chat privado.")
-    await canal_mafia.send("Bienvenidos mafiosos. Usen `!matar <jugador>` para elegir su víctima.")
+        canal_dia = ctx.guild.get_channel(partida["canal_dia"])
+        await canal_mafiosos.delete()
+        partida["canal_mafiosos"] = None
 
-    votos_mafia.clear()
+        if not any(r == "Ciudadano" for r in partida["roles"].values()):
+            await canal_dia.send("🧛‍♂️ ¡Los mafiosos ganaron!")
+            partidas.pop(ctx.guild.id)
+            return
 
-    await esperar_votos_mafiosos(votos_mafia,mafiosos)
-    partida["estado_noche"] = "completado"
+        await fase_dia(ctx, partidas, votos_dia, victima)
 
-    if len(votos_mafia) == 0:
-        await canal.send("La fase de noche terminó sin votos. La partida continúa.")
-    else:
-        victima = max(votos_mafia,key=votos_mafia.get)
-        jugador_votado = guild.get_member(victima)
-        await canal.send(f"🌙 Los mafiosos han decidido eliminar a {jugador_votado.name}. ¡Se procesará al amanecer!")
-
-    await eliminar_canal_mafia(canal_mafia)
-
-    if len(partida["mafiosos"] ) == 0:
-        await canal.send("🎉 Los **ciudadanos han ganado**. No quedan mafiosos en el juego.")
-        await eliminar_canal_mafia(canal_mafia)
-    
-
-
-async def crear_roles(guild, mafiosos,jugadores):
-    mafia_rol = discord.utils.get(guild.roles, name="Mafioso")
-    if not mafia_rol:
-        mafia_rol = await guild.create_role(name="Mafioso", color=discord.Color.red(), reason="Rol para los mafiosos")
-    
-    ciudadano_rol = discord.utils.get(guild.roles, name="Ciudadano")
-    if not ciudadano_rol:
-        ciudadano_rol = await guild.create_role(name="Ciudadano", color=discord.Color.blue(), reason="Rol para los ciudadanos")
-    for jugador_id in jugadores:
-         member = guild.get_member(jugador_id)
-         if member:
-             if jugador_id in mafiosos:
-                await member.add_roles(mafia_rol)
-             else:
-                await member.add_roles(ciudadano_rol)
-                
-async def crear_canal_mafia(guild, mafiosos):
+async def crear_canal_mafia(guild, mafiosos_ids):
     overwrites = {
         guild.default_role: discord.PermissionOverwrite(read_messages=False),
     }
-
-    for mafioso_id in mafiosos:
-        member = guild.get_member(mafioso_id)
+    for id in mafiosos_ids:
+        member = guild.get_member(id)
         if member:
             overwrites[member] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+    return await guild.create_text_channel("mafia-privado", overwrites=overwrites)
 
-    canal_mafia = await guild.create_text_channel("Mafia_Chat", overwrites=overwrites)
-    return canal_mafia
-
-@client.tree.command(name="matar", description="Vota a quien matar durante la fase de noche", guild=GUILD_ID)
-async def matar_cmd(interaction: discord.Interaction, victima: discord.Member):
-    if interaction.user.id not in partidas.get(interaction.channel.id, {}).get("mafiosos", []):
-        await interaction.response.send_message("No eres mafioso, no puedes votar.")
-        return
-
-    votos_mafia[interaction.user.id] = victima.id
-    await interaction.response.send_message(f"Voto registrado. Mafioso {interaction.user.name} votó por {victima.name}.")
-
-async def eliminar_canal_mafia(canal_mafia):
-    try:
-        await canal_mafia.delete()
-        print("El Canal de mafia fue eliminado")
-    except Exception as e:
-        print(f"Error en eliminar el canal de mafiosos: {e}")
-client.run(TOKEN)
+async def eliminar_canal_mafia(canal):
+    await canal.delete()
