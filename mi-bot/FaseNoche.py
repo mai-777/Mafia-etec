@@ -1,7 +1,9 @@
 import discord
 from collections import defaultdict
 
-async def comando_matar(ctx, partidas, votos_mafia, client, fase_dia, votos_dia):
+import discord
+
+async def comando_matar(ctx, partidas, votos_mafia, bot, fase_dia, votos_dia, votantes_dia, victima):
     partida = partidas.get(ctx.guild.id)
     if not partida:
         await ctx.send("No hay partida activa.")
@@ -16,19 +18,28 @@ async def comando_matar(ctx, partidas, votos_mafia, client, fase_dia, votos_dia)
         await ctx.send("Solo los mafiosos pueden usar este comando.")
         return
 
-    victima = ctx.message.mentions[0]
+    if victima not in partida["jugadores"]:
+        await ctx.send("❌ Ese jugador ya está muerto.")
+        return
+
+    if victima not in votos_mafia:
+        votos_mafia[victima] = 0
     votos_mafia[victima] += 1
+
     await ctx.send(f"🗳️ Voto registrado para matar a {victima.mention}")
 
     total_mafiosos = sum(1 for r in partida["roles"].values() if r == "Mafioso")
     if votos_mafia[victima] >= total_mafiosos:
         await canal_mafiosos.send(f"🩸 {victima.mention} ha sido asesinado.")
         partida["jugadores"].remove(victima)
-        del partida["roles"][victima]
+        rol_victima = partida["roles"].pop(victima)
         votos_mafia.clear()
 
         canal_dia = ctx.guild.get_channel(partida["canal_dia"])
-        await canal_mafiosos.delete()
+        try:
+            await canal_mafiosos.delete()
+        except discord.Forbidden:
+            await canal_dia.send("⚠️ No se pudo eliminar el canal de la mafia.")
         partida["canal_mafiosos"] = None
 
         if not any(r == "Ciudadano" for r in partida["roles"].values()):
@@ -36,7 +47,7 @@ async def comando_matar(ctx, partidas, votos_mafia, client, fase_dia, votos_dia)
             partidas.pop(ctx.guild.id)
             return
 
-        await fase_dia(ctx, partidas, votos_dia, victima)
+        await fase_dia(ctx, partidas, votos_dia, votantes_dia, victima, rol_victima)
 
 async def crear_canal_mafia(guild, mafiosos_ids):
     overwrites = {

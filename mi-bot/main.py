@@ -1,41 +1,42 @@
-import discord
 import os
-from dotenv import load_dotenv
+import discord
 from discord.ext import commands
-from collections import defaultdict
+from dotenv import load_dotenv
 
-from creacion_partidas import crear_partida, unirme_partida
+from creacion_partidas import crear_partida, unirme_partida, Partida
 from FaseNoche import comando_matar
-from FaseDia import iniciar_fase_dia
+from FaseDia import comando_votar, iniciar_fase_dia
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
 intents = discord.Intents.all()
-client = commands.Bot(command_prefix="!", intents=intents)
+client = commands.Bot(command_prefix='!', intents=intents)
+
 
 partidas = {}
-votos_mafia = defaultdict(int)
-votos_dia = defaultdict(int)
+votos_mafia = {}
+votos_dia = {}
+votantes_dia = set()
 
 @client.event
 async def on_ready():
     print("✅ Bot conectado.")
 
-@client.command(name="crear")
+@client.command()
 async def crear(ctx, max_jugadores: int):
     await crear_partida(ctx, partidas, max_jugadores)
 
-@client.command(name="unirme")
+@client.command()
 async def unirme(ctx):
     await unirme_partida(ctx, partidas, client)
 
-@client.command(name="matar")
+@client.command()
 async def matar(ctx, victima: discord.Member):
-    await comando_matar(ctx, partidas, votos_mafia, client, iniciar_fase_dia, votos_dia)
+    await comando_matar(ctx, partidas, votos_mafia, client, fase_dia=iniciar_fase_dia, votos_dia=votos_dia, votantes_dia=votantes_dia, victima=victima)
 
-@client.command(name="votar")
+@client.command()
 async def votar(ctx, acusado: discord.Member):
-    await iniciar_fase_dia(ctx, partidas, votos_dia, acusado)
+    await comando_votar(ctx, partidas, votos_dia, votantes_dia, acusado)
 
 client.run(TOKEN)
