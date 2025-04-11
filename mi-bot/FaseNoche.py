@@ -1,7 +1,6 @@
 import discord
 from collections import defaultdict
-
-import discord
+import asyncio
 
 async def comando_matar(ctx, partidas, votos_mafia, bot, fase_dia, votos_dia, votantes_dia, victima):
     partida = partidas.get(ctx.guild.id)
@@ -30,24 +29,86 @@ async def comando_matar(ctx, partidas, votos_mafia, bot, fase_dia, votos_dia, vo
 
     total_mafiosos = sum(1 for r in partida["roles"].values() if r == "Mafioso")
     if votos_mafia[victima] >= total_mafiosos:
-        await canal_mafiosos.send(f"🩸 {victima.mention} ha sido asesinado.")
-        partida["jugadores"].remove(victima)
-        rol_victima = partida["roles"].pop(victima)
-        votos_mafia.clear()
+        victima_asesinada = victima
+        if partida["protegido_noche"] == victima_asesinada:
+            await canal_mafiosos.send(f"🛡️ ¡{victima_asesinada.mention} estaba protegido esta noche!")
+            partida["protegido_noche"] = None
+        else:
+            await canal_mafiosos.send(f"🩸 {victima_asesinada.mention} ha sido asesinado.")
+            partida["jugadores"].remove(victima_asesinada)
+            rol_victima = partida["roles"].pop(victima_asesinada)
+            votos_mafia.clear()
 
-        canal_dia = ctx.guild.get_channel(partida["canal_dia"])
-        try:
-            await canal_mafiosos.delete()
-        except discord.Forbidden:
-            await canal_dia.send("⚠️ No se pudo eliminar el canal de la mafia.")
-        partida["canal_mafiosos"] = None
+            canal_dia = ctx.guild.get_channel(partida["canal_dia"])
+            try:
+                await canal_mafiosos.delete()
+            except discord.Forbidden:
+                await canal_dia.send("⚠️ No se pudo eliminar el canal de la mafia.")
+            partida["canal_mafiosos"] = None
 
-        if not any(r == "Ciudadano" for r in partida["roles"].values()):
-            await canal_dia.send("🧛‍♂️ ¡Los mafiosos ganaron!")
-            partidas.pop(ctx.guild.id)
-            return
+            if not any(r == "Ciudadano" or r == "Juez" or r == "Espía" for r in partida["roles"].values()):
+                await canal_dia.send("🧛‍♂️ ¡Los mafiosos ganaron!")
+                from creacion_partidas import partidas as all_partidas
+                all_partidas.pop(ctx.guild.id)
+                return
 
-        await fase_dia(ctx, partidas, votos_dia, votantes_dia, victima, rol_victima)
+            await fase_dia(ctx, partidas, votos_dia, votantes_dia, victima_asesinada, rol_victima)
+        votos_mafia.clear() # Limpiar votos incluso si la víctima estaba protegida
+
+    if partida["modo_rapido"]:
+        await asyncio.sleep(partida["tiempo_noche"])
+        if partida["fase"] == "noche" and partida["canal_mafiosos"]:
+            canal_mafiosos = ctx.guild.get_channel(partida["canal_mafiosos"])
+            if canal_mafiosos:
+                await canal_mafiosos.send("⏰ ¡El tiempo de la noche ha terminado!")
+                # Aquí podrías implementar una lógica por defecto si no hubo suficientes votos
+
+async def comando_proteger(ctx, partidas, protegido):
+    partida = partidas.get(ctx.guild.id)
+    if not partida or partida["fase"] != "noche":
+        await ctx.send("❌ No estamos en fase de noche.")
+        return
+
+    if partida["roles"].get(ctx.author) != "Juez":
+        await ctx.send("❌ Solo el Juez puede usar este comando.")
+        return
+
+    if ctx.author in partida["habilidades_usadas"]["proteger"]:
+        await ctx.send("❌ Ya usaste tu habilidad para proteger.")
+        return
+
+    if protegido not in partida["jugadores"]:
+        await ctx.send("❌ Ese jugador no está en la partida.")
+        return
+
+    partida["protegido_noche"] = protegido
+    partida["habilidades_usadas"]["proteger"].add(ctx.author)
+    await ctx.send(f"🛡️ Has protegido a {protegido.mention} esta noche.")
+
+async def comando_investigar(ctx, partidas, investigado):
+    partida = partidas.get(ctx.guild.id)
+    if not partida or partida["fase"] != "noche":
+        await ctx.send("❌ No estamos en fase de noche.")
+        return
+
+    if partida["roles"].get(ctx.author) != "Espía":
+        await ctx.send("❌ Solo el Espía puede usar este comando.")
+        return
+
+    if ctx.author in partida["habilidades_usadas"]["investigar"]:
+        await ctx.send("❌ Ya usaste tu habilidad para investigar.")
+        return
+
+    if investigado not in partida["jugadores"]:
+        await ctx.send("❌ Ese jugador no está en la partida.")
+        return
+
+    rol_investigado = partida["roles"].get(investigado)
+    partida["investigaciones"][ctx.author] = investigado
+    partida["habilidades_usadas"]["investigar"].add(ctx.author)
+
+    await ctx.author.send(f"🕵️ Has investigado a {investigado.mention}. Su rol es: **{rol_investigado}**")
+    await ctx.send(f"🕵️ Has investigado a {investigado.mention}. Revisa tus mensajes privados.")
 
 async def crear_canal_mafia(guild, mafiosos_ids):
     overwrites = {
