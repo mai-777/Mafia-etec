@@ -2,6 +2,7 @@ import discord
 from collections import defaultdict
 import asyncio
 
+
 async def comando_matar(ctx, partidas, votos_mafia, bot, fase_dia, votos_dia, votantes_dia, victima):
     partida = partidas.get(ctx.guild.id)
     if not partida:
@@ -119,8 +120,8 @@ async def crear_canal_mafia(ctx, partida):
             overwrites[jugador] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
     canal_mafia = await guild.create_text_channel("mafia-secreta", overwrites=overwrites, reason="Canal para los mafiosos")
-    
-    #guarda el nuevo canal (por si acaso) 
+   
+    #guarda el nuevo canal (por si acaso)
     partida["canal_mafiosos"] = canal_mafia.id
 
     await canal_mafia.send("🌙 La noche ha comenzado. Mafiosos, elijan a su víctima usando `!matar @usuario`.")
@@ -131,4 +132,3 @@ async def eliminar_canal_mafia(canal):
         await canal.delete(reason="Fin de la fase de noche")
     except Exception as e:
         print(f"Error al eliminar canal de mafiosos: {e}")
-

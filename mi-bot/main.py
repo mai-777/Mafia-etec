@@ -40,3 +40,5 @@ async def votar(ctx, acusado: discord.Member):
     await comando_votar(ctx, partidas, votos_dia, votantes_dia, acusado)
 
 client.run(TOKEN)
+
+

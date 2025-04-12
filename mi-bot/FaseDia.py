@@ -49,6 +49,7 @@ async def comando_votar(ctx, partidas, votos_dia, votantes_dia, acusado):
 
     await ctx.send(f"🗳️ {ctx.author.display_name} ha votado por {acusado.display_name}.")
 
+
     if len(votantes_dia) == len(partida["jugadores"]):
         await determinar_eliminacion_dia(ctx, partidas, votos_dia, votantes_dia)
 async def determinar_eliminacion_dia(ctx, partidas, votos_dia, votantes_dia):
@@ -59,6 +60,7 @@ async def determinar_eliminacion_dia(ctx, partidas, votos_dia, votantes_dia):
     canal_dia = ctx.guild.get_channel(partida["canal_dia"])
     if not partida or not partida["jugadores"]:
         return
+
 
     if not votos_dia:
         await canal_dia.send("No hubo votos durante el día.")
@@ -80,6 +82,7 @@ async def determinar_eliminacion_dia(ctx, partidas, votos_dia, votantes_dia):
     rol_eliminado = partida["roles"].pop(mas_votado)
     partida["jugadores"].remove(mas_votado)
 
+
     if rol_eliminado == "Mafioso":
         for jugador in partida["jugadores"]:
             if partida["roles"].get(jugador) == "Ciudadano":
@@ -89,7 +92,9 @@ async def determinar_eliminacion_dia(ctx, partidas, votos_dia, votantes_dia):
             if partida["roles"].get(jugador) == "Mafioso":
                 puntuaciones[jugador] += 1
 
+
     await canal_dia.send(f"🔪 {mas_votado.display_name} fue eliminado. Era **{rol_eliminado}**.")
+
 
     roles_vivos = [partida["roles"][jugador] for jugador in partida["jugadores"]]
     if "Mafioso" not in roles_vivos:
@@ -111,6 +116,7 @@ async def determinar_eliminacion_dia(ctx, partidas, votos_dia, votantes_dia):
                 puntuaciones[jugador] += 3
         partidas.pop(ctx.guild.id)
 
+
         canal_mafia_id = partida.get("canal_mafia")
         if canal_mafia_id:
             canal_mafia = ctx.guild.get_channel(canal_mafia_id)
@@ -128,5 +134,6 @@ async def determinar_eliminacion_dia(ctx, partidas, votos_dia, votantes_dia):
         canal_mafia = ctx.guild.get_channel(canal_mafia_id)
         if canal_mafia:
             await eliminar_canal_mafia(canal_mafia)
+
 
     await crear_canal_mafia(ctx, partida)
