@@ -1,10 +1,12 @@
 import asyncio
 import discord
 import random
+from collections import defaultdict
 
 Partida = dict
+puntuaciones = defaultdict(int) 
 
-async def crear_partida(ctx, partidas, max_jugadores):
+async def crear_partida(ctx, partidas, max_jugadores, modo_rapido=False, tiempo_dia=60, tiempo_noche=30):
     if ctx.guild.id in partidas:
         await ctx.send("Ya hay una partida en curso en este servidor.")
         return
@@ -16,9 +18,15 @@ async def crear_partida(ctx, partidas, max_jugadores):
         "canal_mafiosos": None,
         "canal_dia": ctx.channel.id,
         "fase": "esperando",
+        "modo_rapido": modo_rapido,
+        "tiempo_dia": tiempo_dia,
+        "tiempo_noche": tiempo_noche,
+        "protegido_noche": None,
+        "investigaciones": {},  # Espía investiga a quién
+        "habilidades_usadas": defaultdict(set), # Jugadores que usaron su habilidad
     }
 
-    await ctx.send(f"🎮 Se ha creado una partida para {max_jugadores} jugadores. Usa `!unirme` para participar.")
+    await ctx.send(f"🎮 Se ha creado una partida para {max_jugadores} jugadores (Modo Rápido: {'Sí' if modo_rapido else 'No'}). Usa `!unirme` para participar.")
 
 async def unirme_partida(ctx, partidas, bot):
     partida = partidas.get(ctx.guild.id)
@@ -43,11 +51,22 @@ async def unirme_partida(ctx, partidas, bot):
 async def iniciar_partida(ctx, partida, partidas):
     jugadores = partida["jugadores"]
     random.shuffle(jugadores)
+    num_jugadores = len(jugadores)
+    num_mafiosos = max(1, num_jugadores // 3)
+    num_jueces = 1 if num_jugadores >= 7 else 0
+    num_espias = 1 if num_jugadores >= 5 else 0
 
-    mafiosos = random.sample(jugadores, k=max(1, len(jugadores) // 3))
-    for j in jugadores:
-        partida["roles"][j] = "Mafioso" if j in mafiosos else "Ciudadano"
+    roles_disponibles = ["Mafioso"] * num_mafiosos + ["Juez"] * num_jueces + ["Espía"] * num_espias
+    num_ciudadanos = num_jugadores - len(roles_disponibles)
+    roles_disponibles.extend(["Ciudadano"] * num_ciudadanos)
+    random.shuffle(roles_disponibles)
 
+    partida["roles"] = {jugadores[i]: roles_disponibles[i] for i in range(num_jugadores)}
+    partida["protegido_noche"] = None
+    partida["investigaciones"] = {}
+    partida["habilidades_usadas"].clear()
+
+    mafiosos = [j for j in jugadores if partida["roles"][j] == "Mafioso"]
     canal_mafia = await crear_canal_mafia(ctx.guild, [j.id for j in mafiosos])
     partida["canal_mafiosos"] = canal_mafia.id
     partida["fase"] = "noche"
@@ -58,8 +77,8 @@ async def iniciar_partida(ctx, partida, partidas):
         except:
             pass
 
-    await canal_mafia.send("🌙 Noche: Mafiosos, elijan a su víctima usando `!matar @usuario`.")
-    await ctx.send("🌙 La noche ha comenzado. Los mafiosos han recibido instrucciones por privado.")
+    await canal_mafia.send(f"🌙 Noche: Mafiosos, elijan a su víctima usando `!matar @usuario` (tienen {partida['tiempo_noche']} segundos si el modo rápido está activo).")
+    await ctx.send(f"🌙 La noche ha comenzado. Los roles han sido asignados por privado (Modo Rápido: {'Sí' if partida['modo_rapido'] else 'No'}).")
 
 async def crear_canal_mafia(guild, mafiosos_ids):
     overwrites = {
@@ -71,34 +90,15 @@ async def crear_canal_mafia(guild, mafiosos_ids):
             overwrites[member] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
     return await guild.create_text_channel("mafia-privado", overwrites=overwrites)
 
-
-async def asignar_roles_y_empezar(ctx, partida, client):
-    from random import shuffle
-    jugadores = partida["jugadores"]
-    shuffle(jugadores)
-    mitad = len(jugadores) // 2
-    partida["roles"] = {j: ("Mafioso" if i < mitad else "Ciudadano") for i, j in enumerate(jugadores)}
-
-    mafiosos = [j for j in jugadores if partida["roles"][j] == "Mafioso"]
-    canal_mafia = await crear_canal_mafia(ctx.guild, [m.id for m in mafiosos])
-    partida["canal_mafiosos"] = canal_mafia.id
-
-    for j in jugadores:
-        try:
-            await j.send(f"Tu rol es: **{partida['roles'][j]}**")
-        except:
-            pass
-
-    await canal_mafia.send("🌙 Es de noche. Mafiosos, usen `!matar @usuario` para asesinar.")
-
 async def ranking(interaction, puntuaciones):
     if not puntuaciones:
         await interaction.response.send_message("🏆 No hay puntuaciones todavía.", ephemeral=True)
         return
-    texto = "\n".join([f"{user}: {pts} puntos" for user, pts in puntuaciones.items()])
+    sorted_puntuaciones = sorted(puntuaciones.items(), key=lambda item: item[1], reverse=True)
+    texto = "\n".join([f"{user.name}: {pts} puntos" for user, pts in sorted_puntuaciones])
     await interaction.response.send_message(f"🏆 **Ranking:**\n{texto}", ephemeral=True)
 
 async def fase_juego(interaction, duracion):
-   await interaction.channel.send(f"🌙 La fase comienza. Tienen {duracion} segundos.")
-   await asyncio.sleep(duracion)
-   await interaction.channel.send("🌞 La fase ha terminado.")
+    await interaction.channel.send(f"⏳ La fase comienza. Tienen {duracion} segundos.")
+    await asyncio.sleep(duracion)
+    await interaction.channel.send("⏰ La fase ha terminado.")
